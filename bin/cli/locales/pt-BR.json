@@ -1163,7 +1163,7 @@
       "listDescription": "Listar todos os idiomas disponíveis",
       "listTitle": "Idiomas Disponíveis",
       "current": "Idioma: {code} ({name})",
-      "saved": "Idioma definido como {code} ({name}). Efetivo na próxima execução.",
+      "saved": "Idioma definido como {code} ({name}).",
       "noCode": "Código de idioma obrigatório. Execute 'omniroute config lang list' para ver os códigos disponíveis.",
       "unknown": "Código de idioma desconhecido: {code}. Execute 'omniroute config lang list' para ver os códigos disponíveis.",
       "alreadySet": "O idioma já está definido como {code}.",

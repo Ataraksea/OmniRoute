@@ -2,6 +2,7 @@ import { printHeading, printInfo, printSuccess, printError } from "../io.mjs";
 import { t } from "../i18n.mjs";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { resolveDataDir } from "../data-dir.mjs";
 import { registerContexts } from "./contexts.mjs";
 
@@ -143,7 +144,7 @@ async function runConfigValidateCommand(toolId, opts = {}) {
 
 function loadI18nLocales() {
   const cfgPath = path.join(
-    path.dirname(path.dirname(path.dirname(path.resolve(import.meta.url.replace("file://", ""))))),
+    path.dirname(path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))),
     "config",
     "i18n.json"
   );
@@ -172,10 +173,12 @@ function upsertEnvLine(envPath, key, value) {
   }
   const dir = path.dirname(envPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(envPath, lines.join("\n"), "utf8");
+  const tmp = `${envPath}.tmp`;
+  fs.writeFileSync(tmp, lines.join("\n"), "utf8");
+  fs.renameSync(tmp, envPath);
 }
 
-async function runConfigLangGetCommand(opts = {}) {
+export async function runConfigLangGetCommand(opts = {}) {
   const { getLocale } = await import("../i18n.mjs");
   const code = getLocale();
   const locales = loadI18nLocales();
@@ -189,7 +192,7 @@ async function runConfigLangGetCommand(opts = {}) {
   return 0;
 }
 
-async function runConfigLangSetCommand(code, opts = {}) {
+export async function runConfigLangSetCommand(code, opts = {}) {
   if (!code) {
     console.error(t("config.lang.noCode"));
     return 1;
@@ -214,7 +217,7 @@ async function runConfigLangSetCommand(code, opts = {}) {
   return 0;
 }
 
-async function runConfigLangListCommand(opts = {}) {
+export async function runConfigLangListCommand(opts = {}) {
   const { getLocale } = await import("../i18n.mjs");
   const current = getLocale();
   const locales = loadI18nLocales();
