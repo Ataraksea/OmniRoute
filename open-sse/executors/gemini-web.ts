@@ -7,6 +7,10 @@
  *
  * Auth: Cookie-based (__Secure-1PSID + __Secure-1PSIDTS from gemini.google.com)
  * Method: Playwright browser automation
+ *
+ * Note: Streaming is pseudo-streaming — waits for full Gemini response then
+ * sends as single SSE chunk. Gemini's StreamGenerate endpoint returns complete
+ * responses, not chunked streams.
  */
 
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
@@ -54,9 +58,47 @@ function formatStreamChunk(content: string, model: string, finishReason: string 
 }
 
 /**
+ * Parse cookie string, stripping attributes (Path, Domain, Expires, etc.)
+ * Input: full browser cookie string or just "name=value; name2=value2"
+ * Output: array of { name, value } pairs
+ */
+function parseCookies(raw: string): Array<{ name: string; value: string }> {
+  return raw
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eqIdx = part.indexOf("=");
+      if (eqIdx === -1) return null;
+      const name = part.substring(0, eqIdx).trim();
+      const value = part.substring(eqIdx + 1).trim();
+      // Skip cookie attributes that aren't name=value pairs
+      if (!name || !value) return null;
+      const lowerName = name.toLowerCase();
+      if (
+        ["path", "domain", "expires", "max-age", "secure", "httponly", "samesite"].includes(
+          lowerName
+        )
+      ) {
+        return null;
+      }
+      return { name, value };
+    })
+    .filter(Boolean) as Array<{ name: string; value: string }>;
+}
+
+/**
  * Parse Gemini StreamGenerate response text.
- * Format: )]}' \n <length> \n [["wrb.fr",null,"<JSON string>"]] \n ...
- * Text is at inner[4][0][1] as array of string chunks.
+ *
+ * Response format:
+ *   )]}'
+ *   <length>
+ *   [["wrb.fr", null, "<JSON string>"]]
+ *   <length>
+ *   [["wrb.fr", null, "<JSON string>"]]
+ *
+ * The JSON string contains nested array: inner[4][0][1] = ["text chunks"]
+ * We return text from the first wrb.fr line that contains content.
  */
 function parseStreamResponse(raw: string): string {
   const lines = raw.split("\n");
@@ -65,14 +107,14 @@ function parseStreamResponse(raw: string): string {
     try {
       const arr = JSON.parse(line);
       if (!Array.isArray(arr) || !arr[0] || arr[0][0] !== "wrb.fr") continue;
-      const payload = arr[0][2];
+      const payload = arr[0]?.[2];
       if (typeof payload !== "string") continue;
       const inner = JSON.parse(payload);
-      // Text is at inner[4][0][1] — return from first match only
-      const candidates = inner?.[4]?.[0]?.[1];
-      if (Array.isArray(candidates)) {
-        return candidates.filter((c: unknown) => typeof c === "string").join("");
-      }
+      // Defensive: check each level before accessing
+      const responseArray = inner?.[4]?.[0]?.[1];
+      if (!Array.isArray(responseArray)) continue;
+      const text = responseArray.filter((c: unknown) => typeof c === "string").join("");
+      if (text) return text;
     } catch {
       // Skip unparseable lines
     }
@@ -120,24 +162,22 @@ export class GeminiWebExecutor extends BaseExecutor {
       };
     }
 
+    let browser: any = null;
     try {
       const { chromium } = await import("playwright");
-      const browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ headless: true });
       const context = await browser.newContext({ userAgent: GEMINI_USER_AGENT });
 
-      // Parse cookies
-      const cookiePairs = cookie.split(";").map((c: string) => c.trim());
+      // Parse cookies — strips attributes like Path, Domain, Expires
+      const cookiePairs = parseCookies(cookie);
       await context.addCookies(
-        cookiePairs.map((c: string) => {
-          const [name, ...rest] = c.split("=");
-          return {
-            name: name.trim(),
-            value: rest.join("=").trim(),
-            domain: ".google.com",
-            path: "/",
-            secure: true,
-          };
-        })
+        cookiePairs.map(({ name, value }) => ({
+          name,
+          value,
+          domain: ".google.com",
+          path: "/",
+          secure: true,
+        }))
       );
 
       const page = await context.newPage();
@@ -146,7 +186,7 @@ export class GeminiWebExecutor extends BaseExecutor {
       let responseText = "";
       let captured = false;
       const responsePromise = new Promise<void>((resolve) => {
-        page.on("response", async (resp) => {
+        page.on("response", async (resp: any) => {
           if (captured || !resp.url().includes("StreamGenerate")) return;
           captured = true;
           try {
@@ -173,7 +213,6 @@ export class GeminiWebExecutor extends BaseExecutor {
 
       // Wait for response or timeout
       await Promise.race([responsePromise, page.waitForTimeout(30000)]);
-      await browser.close();
 
       if (!responseText) {
         return {
@@ -190,6 +229,8 @@ export class GeminiWebExecutor extends BaseExecutor {
       const modelId = model || "gemini-2.5-pro";
 
       if (stream) {
+        // Pseudo-streaming: send complete response as single SSE chunk
+        // Gemini's StreamGenerate returns complete responses, not chunked streams
         const encoder = new TextEncoder();
         const readable = new ReadableStream({
           start(controller) {
@@ -239,6 +280,15 @@ export class GeminiWebExecutor extends BaseExecutor {
         headers: {},
         transformedBody: body,
       };
+    } finally {
+      // Always close browser to prevent resource leaks
+      if (browser) {
+        try {
+          await browser.close();
+        } catch {
+          /* ignore close errors */
+        }
+      }
     }
   }
 }
