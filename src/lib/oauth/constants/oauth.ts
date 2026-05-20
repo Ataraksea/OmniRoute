@@ -282,6 +282,14 @@ export const CURSOR_CONFIG = {
 //   Response field: windsurfApiKey  → stored as accessToken / WINDSURF_API_KEY
 //
 // Fallback: user can also paste a token from windsurf.com/show-auth-token
+export const ZED_CLOUD_CONFIG = {
+  signinUrl: "https://zed.dev/native_app_signin",
+  cloudBaseUrl: "https://cloud.zed.dev",
+  llmTokensPath: "/client/llm_tokens",
+  callbackPort: 0,
+  callbackPath: "/",
+};
+
 export const WINDSURF_CONFIG = {
   // Browser-based PKCE authorize endpoint (extracted from devin.exe binary)
   authorizeUrl: "https://app.devin.ai/editor/signin",
@@ -329,5 +337,6 @@ export const PROVIDERS = {
   KILOCODE: "kilocode",
   CLINE: "cline",
   WINDSURF: "windsurf",
+  ZED_CLOUD: "zed-cloud",
   DEVIN_CLI: "devin-cli",
 };

@@ -17,6 +17,7 @@ import {
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { startLocalServer } from "@/lib/oauth/utils/server";
+import { buildZedSignInUrl, generateZedRsaKeyPair } from "@/lib/oauth/services/zedCloud";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import {
   jsonObjectSchema,
@@ -35,12 +36,18 @@ if (!globalThis.__codexCallbackState) {
 if (!globalThis.__windsurfCallbackState) {
   globalThis.__windsurfCallbackState = null;
 }
+if (!globalThis.__zedCloudCallbackState) {
+  globalThis.__zedCloudCallbackState = null;
+}
 
 /** Providers that use the PKCE browser callback flow (like Codex). */
 const PKCE_CALLBACK_PROVIDERS = new Set(["codex", "windsurf", "devin-cli"]);
 
 /** Providers that allow direct import of a raw API token (no OAuth exchange). */
 const IMPORT_TOKEN_PROVIDERS = new Set(["windsurf", "devin-cli"]);
+
+/** Zed Cloud native RSA sign-in (loopback on /). */
+const ZED_CLOUD_CALLBACK_PROVIDERS = new Set(["zed-cloud"]);
 
 /**
  * Constant-time string comparison to prevent timing-oracle attacks (CWE-208).
@@ -166,6 +173,60 @@ export async function GET(
  * Returns the auth URL and stores codeVerifier for later exchange.
  */
 async function handleStartCallbackServer(provider: string, searchParams: URLSearchParams) {
+  if (ZED_CLOUD_CALLBACK_PROVIDERS.has(provider)) {
+    if (globalThis.__zedCloudCallbackState?.close) {
+      try {
+        globalThis.__zedCloudCallbackState.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    globalThis.__zedCloudCallbackState = null;
+
+    try {
+      const keypair = generateZedRsaKeyPair();
+      const { port, close } = await startLocalServer(
+        (params) => {
+          if (globalThis.__zedCloudCallbackState) {
+            globalThis.__zedCloudCallbackState.callbackParams = params;
+          }
+        },
+        0,
+        ["/"]
+      );
+
+      const authUrl = buildZedSignInUrl(port, keypair.publicKeyB64Url);
+      globalThis.__zedCloudCallbackState = {
+        callbackParams: null,
+        close,
+        port,
+        privateKeyPem: keypair.privateKeyPem,
+        startedAt: Date.now(),
+      };
+
+      const startedAt = Date.now();
+      setTimeout(() => {
+        if (globalThis.__zedCloudCallbackState?.startedAt === startedAt) {
+          try {
+            close();
+          } catch {
+            /* ignore */
+          }
+          globalThis.__zedCloudCallbackState = null;
+        }
+      }, 300000);
+
+      return NextResponse.json({
+        authUrl,
+        serverPort: port,
+        flowType: "native_app_rsa",
+      });
+    } catch (error) {
+      console.error("Zed Cloud start-callback-server error:", error);
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
+  }
+
   if (!PKCE_CALLBACK_PROVIDERS.has(provider)) {
     return NextResponse.json(
       { error: `Callback server not supported for provider: ${provider}` },
@@ -280,7 +341,8 @@ export async function POST(
       }
       body = validation.data;
     } else if (action === "import-token") {
-      const validation = validateBody(oauthImportTokenSchema, rawBody);
+      const importSchema = provider === "zed-cloud" ? zedCloudImportSchema : oauthImportTokenSchema;
+      const validation = validateBody(importSchema, rawBody);
       if (isValidationFailure(validation)) {
         return NextResponse.json({ error: validation.error }, { status: 400 });
       }
@@ -476,6 +538,85 @@ export async function POST(
     if (action === "poll-callback") {
       const { connectionId } = body;
 
+      if (ZED_CLOUD_CALLBACK_PROVIDERS.has(provider)) {
+        if (!globalThis.__zedCloudCallbackState) {
+          return NextResponse.json({
+            success: false,
+            error: "no_server",
+            errorDescription: "Callback server not running",
+          });
+        }
+        if (!globalThis.__zedCloudCallbackState.callbackParams) {
+          return NextResponse.json({ success: false, pending: true });
+        }
+
+        const params = globalThis.__zedCloudCallbackState.callbackParams;
+        const { privateKeyPem, close } = globalThis.__zedCloudCallbackState;
+        try {
+          close();
+        } catch {
+          /* ignore */
+        }
+        globalThis.__zedCloudCallbackState = null;
+
+        if (params.error) {
+          return NextResponse.json({
+            success: false,
+            error: params.error,
+            errorDescription: params.error_description,
+          });
+        }
+
+        const userId = params.user_id;
+        const accessToken = params.access_token;
+        if (!userId || !accessToken) {
+          return NextResponse.json({
+            success: false,
+            error: "no_credentials",
+            errorDescription: "Missing user_id or access_token from Zed callback",
+          });
+        }
+
+        try {
+          const proxy = await resolveProxyForProvider(provider);
+          const tokenData = await runWithProxyContext(proxy, () =>
+            exchangeTokens(provider, accessToken, "", privateKeyPem, undefined, {
+              userId,
+              privateKeyPem,
+            })
+          );
+
+          if (!tokenData.name && (tokenData.email || tokenData.displayName)) {
+            tokenData.name = tokenData.email || tokenData.displayName;
+          }
+
+          const connection = await createProviderConnection({
+            provider,
+            authType: "oauth",
+            ...tokenData,
+            testStatus: "active",
+          });
+
+          await syncToCloudIfEnabled();
+
+          return NextResponse.json({
+            success: true,
+            connection: {
+              id: connection.id,
+              provider: connection.provider,
+              email: connection.email,
+              displayName: connection.displayName,
+            },
+          });
+        } catch (exchangeErr) {
+          console.error("Zed Cloud OAuth exchange error:", exchangeErr);
+          return NextResponse.json(
+            { success: false, error: "Internal server error" },
+            { status: 500 }
+          );
+        }
+      }
+
       // poll-callback is supported for all PKCE callback providers
       if (!PKCE_CALLBACK_PROVIDERS.has(provider)) {
         return NextResponse.json(
@@ -603,76 +744,44 @@ export async function POST(
     }
 
     if (action === "import-token") {
-      const { token, connectionId } = body;
-
-      if (!IMPORT_TOKEN_PROVIDERS.has(provider)) {
-        return NextResponse.json(
-          {
-            error: `import-token not supported for provider: ${provider}. Supported: ${[...IMPORT_TOKEN_PROVIDERS].join(", ")}`,
-          },
-          { status: 400 }
-        );
-      }
-
-      try {
-        // Map the raw token via the provider's mapTokens() — skips the HTTP exchange entirely.
+      if (provider === "zed-cloud") {
+        const { accessToken, userId, email, name } = body;
+        if (!accessToken || !userId) {
+          return NextResponse.json(
+            {
+              error: {
+                message:
+                  "userId and credentialJson (accessToken) are required for Zed Cloud import",
+              },
+            },
+            { status: 400 }
+          );
+        }
         const providerData = getProvider(provider);
-        const tokenData = providerData.mapTokens({ accessToken: token });
-
-        // Normalize: if name is missing, use email as fallback display label
-        if (!tokenData.name && (tokenData.email || tokenData.displayName)) {
-          tokenData.name = tokenData.email || tokenData.displayName;
-        }
-
-        const expiresAt = tokenData.expiresIn
-          ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString()
-          : null;
-
-        let connection: any;
-        if (tokenData.email) {
-          const existing = await getProviderConnections({ provider });
-          const match = existing.find((c: any) => {
-            if (c.id && safeEqual(connectionId, c.id)) return true;
-            if (!safeEqual(c.email, tokenData.email) || c.authType !== "oauth") return false;
-            return true;
-          });
-          const matchId = typeof match?.id === "string" ? match.id : null;
-          if (matchId) {
-            connection = await updateProviderConnection(matchId, {
-              ...tokenData,
-              expiresAt,
-              testStatus: "active",
-              isActive: true,
-            });
-          }
-        }
-        if (!connection) {
-          connection = await createProviderConnection({
-            provider,
-            authType: "oauth",
-            ...tokenData,
-            expiresAt,
-            testStatus: "active",
-          });
-        }
-
+        const tokenData = providerData.mapTokens({
+          userId,
+          credentialJson: accessToken,
+          email,
+          authMethod: "import",
+        });
+        const connection = await createProviderConnection({
+          provider,
+          authType: "oauth",
+          name: name || tokenData.email || "Zed Cloud",
+          ...tokenData,
+          testStatus: "active",
+        });
         await syncToCloudIfEnabled();
-
         return NextResponse.json({
           success: true,
           connection: {
             id: connection.id,
             provider: connection.provider,
             email: connection.email,
-            displayName: connection.displayName,
           },
         });
-      } catch (importErr: any) {
-        return NextResponse.json({ success: false, error: importErr.message }, { status: 500 });
       }
-    }
 
-    if (action === "import-token") {
       const { token, connectionId } = body;
 
       if (!IMPORT_TOKEN_PROVIDERS.has(provider)) {

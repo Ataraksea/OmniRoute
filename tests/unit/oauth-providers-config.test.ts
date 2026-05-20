@@ -36,6 +36,7 @@ const {
   QODER_CONFIG,
   QWEN_CONFIG,
   WINDSURF_CONFIG,
+  ZED_CLOUD_CONFIG,
 } = oauthModule;
 const { REGISTRY } = registryModule;
 
@@ -57,6 +58,7 @@ const EXPECTED_PROVIDER_KEYS = [
   "kilocode",
   "cline",
   "windsurf",
+  "zed-cloud",
   "devin-cli",
 ];
 
@@ -76,6 +78,7 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   kilocode: KILOCODE_CONFIG,
   cline: CLINE_CONFIG,
   windsurf: WINDSURF_CONFIG,
+  "zed-cloud": ZED_CLOUD_CONFIG,
   "devin-cli": WINDSURF_CONFIG,
 };
 
@@ -122,6 +125,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   kilocode: ["apiBaseUrl", "initiateUrl", "pollUrlBase"],
   cline: ["appBaseUrl", "apiBaseUrl", "authorizeUrl", "tokenExchangeUrl", "refreshUrl"],
   windsurf: ["authorizeUrl", "apiServerUrl", "exchangePath", "inferenceUrl"],
+  "zed-cloud": ["signinUrl", "cloudBaseUrl", "llmTokensPath"],
   "devin-cli": ["authorizeUrl", "apiServerUrl", "exchangePath", "inferenceUrl"],
 };
 
@@ -223,6 +227,7 @@ test("every registered OAuth provider has a valid config object, flow type and t
     "authorization_code_pkce",
     "device_code",
     "import_token",
+    "native_app_rsa",
   ]);
 
   for (const [providerId, provider] of Object.entries(PROVIDERS)) {

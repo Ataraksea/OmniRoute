@@ -93,6 +93,17 @@ export const OAUTH_PROVIDERS = {
     authHint:
       "Zed stores LLM provider credentials (OpenAI, Anthropic, Google, Mistral, xAI) in the OS keychain. Use the Import button below to discover and import them automatically.",
   },
+  "zed-cloud": {
+    id: "zed-cloud",
+    alias: "zc",
+    name: "Zed Cloud",
+    icon: "cloud",
+    color: "#084CCF",
+    textIcon: "ZC",
+    website: "https://zed.dev",
+    authHint:
+      "Sign in with your Zed account via native app OAuth (local loopback) or paste credential JSON from zed2api login. Routes through cloud.zed.dev bundled LLM access.",
+  },
   trae: {
     id: "trae",
     alias: "tr",

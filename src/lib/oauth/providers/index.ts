@@ -24,6 +24,7 @@ import { cursor } from "./cursor";
 import { kilocode } from "./kilocode";
 import { cline } from "./cline";
 import { windsurf } from "./windsurf";
+import { zedCloud } from "./zedCloud";
 
 export const PROVIDERS = {
   claude,
@@ -41,6 +42,7 @@ export const PROVIDERS = {
   kilocode,
   cline,
   windsurf,
+  "zed-cloud": zedCloud,
   // devin-cli shares the same token format as windsurf (WINDSURF_API_KEY / devin auth login)
   "devin-cli": windsurf,
 };

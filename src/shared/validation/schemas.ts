@@ -1404,6 +1404,14 @@ export const oauthPollSchema = z.object({
 });
 
 /** Import a raw API token (e.g. WINDSURF_API_KEY) without going through the browser OAuth flow. */
+export const zedCloudImportSchema = z.object({
+  userId: z.string().trim().min(1, "User ID is required"),
+  accessToken: z.string().trim().min(1, "Credential JSON is required"),
+  email: z.string().trim().optional(),
+  name: z.string().trim().optional(),
+  connectionId: z.string().optional(),
+});
+
 export const oauthImportTokenSchema = z.object({
   token: z.string().trim().min(1, "Token is required"),
   connectionId: z.string().optional(),

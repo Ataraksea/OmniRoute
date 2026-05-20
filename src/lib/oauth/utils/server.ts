@@ -9,13 +9,14 @@ import { URL } from "url";
  */
 export function startLocalServer(
   onCallback: (params: Record<string, string>) => void,
-  fixedPort: number | null = null
+  fixedPort: number | null = null,
+  callbackPaths: string[] = ["/callback", "/auth/callback"]
 ): Promise<{ server: any; port: number; close: () => void }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || "/", `http://localhost`);
 
-      if (url.pathname === "/callback" || url.pathname === "/auth/callback") {
+      if (callbackPaths.includes(url.pathname)) {
         const params = Object.fromEntries(url.searchParams);
 
         // Send success response to browser with auto-close attempt

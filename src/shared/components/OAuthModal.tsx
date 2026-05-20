@@ -10,7 +10,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "gemini-cli"]);
 
 /** Providers that use a local callback server on a random port (PKCE browser flow). */
-const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "windsurf", "devin-cli"]);
+const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "windsurf", "devin-cli", "zed-cloud"]);
 
 type OAuthModalProps = {
   isOpen: boolean;
@@ -47,9 +47,11 @@ export default function OAuthModal({
   // API-key paste mode: for providers that accept a token directly (windsurf, devin-cli)
   const [showPasteToken, setShowPasteToken] = useState(false);
   const [pasteToken, setPasteToken] = useState("");
+  const [pasteUserId, setPasteUserId] = useState("");
   const [savingToken, setSavingToken] = useState(false);
 
-  const supportsTokenPaste = provider === "windsurf" || provider === "devin-cli";
+  const supportsTokenPaste =
+    provider === "windsurf" || provider === "devin-cli" || provider === "zed-cloud";
   const popupRef = useRef(null);
   const { copied, copy } = useCopyToClipboard();
   const deviceVerificationUrl =
@@ -162,6 +164,10 @@ export default function OAuthModal({
   const handleSaveToken = useCallback(async () => {
     const token = pasteToken.trim();
     if (!token || !provider) return;
+    if (provider === "zed-cloud" && !pasteUserId.trim()) {
+      setError("User ID is required for Zed Cloud import");
+      return;
+    }
     setSavingToken(true);
     setError(null);
     try {
@@ -170,10 +176,18 @@ export default function OAuthModal({
       const res = await fetch(`/api/oauth/${provider}/import-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          connectionId: reauthConnection?.id,
-        }),
+        body: JSON.stringify(
+          provider === "zed-cloud"
+            ? {
+                userId: pasteUserId.trim(),
+                accessToken: token,
+                connectionId: reauthConnection?.id,
+              }
+            : {
+                token,
+                connectionId: reauthConnection?.id,
+              }
+        ),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -192,7 +206,7 @@ export default function OAuthModal({
     } finally {
       setSavingToken(false);
     }
-  }, [pasteToken, provider, onSuccess, reauthConnection]);
+  }, [pasteToken, pasteUserId, provider, onSuccess, reauthConnection]);
 
   // Poll for device code token
   const startPolling = useCallback(
@@ -693,9 +707,11 @@ export default function OAuthModal({
         {supportsTokenPaste && showPasteToken && step !== "success" && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-text-muted">
-              {provider === "windsurf"
-                ? "Visit windsurf.com/show-auth-token, copy your Windsurf API key, and paste it below."
-                : "Provide your WINDSURF_API_KEY (obtained via `devin auth login` or windsurf.com/show-auth-token)."}
+              {provider === "zed-cloud"
+                ? "Paste your Zed user_id and credential JSON (from zed2api login or accounts.json)."
+                : provider === "windsurf"
+                  ? "Visit windsurf.com/show-auth-token, copy your Windsurf API key, and paste it below."
+                  : "Provide your WINDSURF_API_KEY (obtained via `devin auth login` or windsurf.com/show-auth-token)."}
             </p>
             <Input
               value={pasteToken}

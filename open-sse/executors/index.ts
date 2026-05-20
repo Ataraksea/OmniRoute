@@ -25,6 +25,7 @@ import { GitlabExecutor } from "./gitlab.ts";
 import { NlpCloudExecutor } from "./nlpcloud.ts";
 import { PetalsExecutor } from "./petals.ts";
 import { WindsurfExecutor } from "./windsurf.ts";
+import { ZedCloudExecutor } from "./zedCloud.ts";
 import { DevinCliExecutor } from "./devin-cli.ts";
 import { DeepSeekWebExecutor } from "./deepseek-web.ts";
 import { DeepSeekWebWithAutoRefreshExecutor } from "./deepseek-web-with-auto-refresh.ts";
@@ -75,6 +76,8 @@ const executors = {
   "muse-spark-web": new MuseSparkWebExecutor(),
   "ms-web": new MuseSparkWebExecutor(), // Alias
   windsurf: new WindsurfExecutor(),
+  "zed-cloud": new ZedCloudExecutor(),
+  zc: new ZedCloudExecutor(),
   ws: new WindsurfExecutor(), // Alias
   "devin-cli": new DevinCliExecutor(),
   devin: new DevinCliExecutor(), // Alias
@@ -127,6 +130,7 @@ export { GitlabExecutor } from "./gitlab.ts";
 export { NlpCloudExecutor } from "./nlpcloud.ts";
 export { PetalsExecutor } from "./petals.ts";
 export { WindsurfExecutor } from "./windsurf.ts";
+export { ZedCloudExecutor } from "./zedCloud.ts";
 export { DevinCliExecutor } from "./devin-cli.ts";
 export { CopilotWebExecutor } from "./copilot-web.ts";
 export { VeoAIFreeWebExecutor } from "./veoaifree-web.ts";

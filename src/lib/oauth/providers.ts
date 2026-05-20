@@ -40,6 +40,8 @@ export function generateAuthData(providerName, redirectUri) {
     authUrl = null;
   } else if (provider.flowType === "authorization_code_pkce") {
     authUrl = provider.buildAuthUrl(provider.config, redirectUri, state, codeChallenge);
+  } else if (provider.flowType === "native_app_rsa") {
+    authUrl = null;
   } else {
     authUrl = provider.buildAuthUrl(provider.config, redirectUri, state);
   }
@@ -59,7 +61,14 @@ export function generateAuthData(providerName, redirectUri) {
 /**
  * Exchange code for tokens
  */
-export async function exchangeTokens(providerName, code, redirectUri, codeVerifier, state) {
+export async function exchangeTokens(
+  providerName,
+  code,
+  redirectUri,
+  codeVerifier,
+  state,
+  extras = null
+) {
   const provider = getProvider(providerName);
 
   const tokens = await provider.exchangeToken(
@@ -67,7 +76,8 @@ export async function exchangeTokens(providerName, code, redirectUri, codeVerifi
     code,
     redirectUri,
     codeVerifier,
-    state
+    state,
+    extras
   );
 
   let extra = null;

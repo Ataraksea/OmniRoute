@@ -1780,6 +1780,32 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     ],
   },
 
+  "zed-cloud": {
+    id: "zed-cloud",
+    alias: "zc",
+    format: "openai",
+    executor: "zedCloud",
+    baseUrl: "https://cloud.zed.dev",
+    authType: "oauth",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    defaultContextLength: 200000,
+    models: [
+      { id: "claude-opus-4-6", name: "Claude Opus 4.6", contextLength: 200000 },
+      { id: "claude-opus-4-5", name: "Claude Opus 4.5", contextLength: 200000 },
+      { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", contextLength: 200000 },
+      { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextLength: 200000 },
+      { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", contextLength: 200000 },
+      { id: "gpt-5.2", name: "GPT-5.2", contextLength: 200000 },
+      { id: "gpt-5.1", name: "GPT-5.1", contextLength: 200000 },
+      { id: "gpt-5", name: "GPT-5", contextLength: 200000 },
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", contextLength: 200000 },
+      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", contextLength: 200000 },
+      { id: "grok-4", name: "Grok 4", contextLength: 200000 },
+    ],
+    passthroughModels: true,
+  },
+
   // ── Devin CLI (Official — ACP JSON-RPC over stdio) ──────────────────────────
   // Uses the official `devin` binary via `devin acp --agent-type summarizer`.
   // Requires devin CLI installed (https://cli.devin.ai) and authenticated
