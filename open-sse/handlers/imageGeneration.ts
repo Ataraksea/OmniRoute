@@ -814,7 +814,7 @@ async function handleGeminiImageGeneration({ model, providerConfig, body, creden
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -1394,7 +1394,7 @@ async function handleFalAIImageGeneration({
       model,
       status: 502,
       startTime,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     });
   }
 }
@@ -1584,7 +1584,7 @@ async function handleStabilityAIImageGeneration({
       model,
       status: 502,
       startTime,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     });
   }
 }
@@ -1703,7 +1703,7 @@ async function handleBlackForestLabsImageGeneration({
       model,
       status: 502,
       startTime,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     });
   }
 }
@@ -1778,7 +1778,7 @@ async function handleRecraftImageGeneration({
       model,
       status: 502,
       startTime,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     });
   }
 }
@@ -1866,7 +1866,7 @@ async function handleTopazImageGeneration({
       model,
       status: 502,
       startTime,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     });
   }
 }
@@ -2446,7 +2446,7 @@ async function fetchImageEndpoint(url, headers, body, provider, log) {
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -2544,7 +2544,7 @@ async function handleHyperbolicImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -2802,7 +2802,7 @@ async function handleNanoBananaImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -2998,7 +2998,7 @@ async function handleSDWebUIImageGeneration({ model, provider, providerConfig, b
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -3104,7 +3104,7 @@ async function handleComfyUIImageGeneration({ model, provider, providerConfig, b
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -3216,7 +3216,7 @@ async function handleHaiperImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -3348,7 +3348,7 @@ async function handleLeonardoImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }
@@ -3438,7 +3438,7 @@ async function handleIdeogramImageGeneration({
     return {
       success: false,
       status: 502,
-      error: sanitizeErrorMessage(err) || "Image provider error",
+      error: `Image provider error: ${sanitizeErrorMessage((err as Error).message || err)}`,
     };
   }
 }

@@ -22,6 +22,7 @@ import {
   resolveGitLabOAuthBaseUrl,
 } from "@/lib/oauth/gitlab";
 import { providerAllowsOptionalApiKey } from "@/shared/constants/providers";
+import { removeConnectionHealth } from "@omniroute/open-sse/services/apiKeyRotator.ts";
 import { fetchZedJwt } from "@omniroute/open-sse/services/zedCloud/token.ts";
 import {
   ZED_CLOUD_URLS,
@@ -728,6 +729,16 @@ export async function testSingleConnection(connectionId: string, validationModel
 
   if (result.valid) {
     updateData.backoffLevel = 0;
+
+    const psd = connection?.providerSpecificData as Record<string, unknown> | undefined;
+    updateData.providerSpecificData = {
+      ...(psd || {}),
+      apiKeyHealth: {},
+    };
+
+    try {
+      removeConnectionHealth(connectionId);
+    } catch {}
   }
 
   // If token was refreshed, update tokens in DB
