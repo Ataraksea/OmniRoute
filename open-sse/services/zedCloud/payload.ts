@@ -9,14 +9,26 @@ type JsonRecord = Record<string, unknown>;
 
 export type ZedVendor = "anthropic" | "open_ai" | "google" | "x_ai";
 
+const ZED_CLAUDE_MODELS = [
+  "claude-opus-4-6",
+  "claude-opus-4-5",
+  "claude-opus-4-1",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4",
+  "claude-3-7-sonnet",
+  "claude-haiku-4-5",
+] as const;
+
+function normalizeZedPrefixedModel(name: string): string {
+  return name.startsWith("zed-cloud/") ? name.slice("zed-cloud/".length) : name;
+}
+
 export function normalizeModelName(name: string): string {
-  if (name.startsWith("claude-opus-4-6")) return "claude-opus-4-6";
-  if (name.startsWith("claude-opus-4-5")) return "claude-opus-4-5";
-  if (name.startsWith("claude-opus-4-1")) return "claude-opus-4-1";
-  if (name.startsWith("claude-sonnet-4-5")) return "claude-sonnet-4-5";
-  if (name.startsWith("claude-sonnet-4")) return "claude-sonnet-4";
-  if (name.startsWith("claude-3-7-sonnet")) return "claude-3-7-sonnet";
-  if (name.startsWith("claude-haiku-4-5")) return "claude-haiku-4-5";
+  name = normalizeZedPrefixedModel(name);
+  for (const model of ZED_CLAUDE_MODELS) {
+    if (name === model || name.startsWith(`${model}-thinking`)) return model;
+  }
   return name;
 }
 
@@ -48,6 +60,23 @@ function extractSystemText(parsed: JsonRecord): string | null {
     return parts.length > 0 ? parts.join("\n\n") : null;
   }
   return null;
+}
+
+function openAiContentToAnthropic(content: unknown): unknown[] {
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  if (!Array.isArray(content)) return [];
+
+  const out: unknown[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const part = item as JsonRecord;
+    if (part.type === "text" && typeof part.text === "string") {
+      out.push({ type: "text", text: part.text });
+      continue;
+    }
+    out.push(part);
+  }
+  return out;
 }
 
 function openAiToolsToAnthropic(tools: unknown): unknown[] {
@@ -142,7 +171,11 @@ function convertOpenAiMessagesToAnthropic(messages: unknown): unknown[] {
       out.push({ role: "assistant", content });
       continue;
     }
-    out.push(msg);
+    if (role === "system") continue;
+    out.push({
+      role,
+      content: openAiContentToAnthropic(m.content),
+    });
   }
   return out;
 }

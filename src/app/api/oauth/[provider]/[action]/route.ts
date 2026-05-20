@@ -24,6 +24,7 @@ import {
   oauthExchangeSchema,
   oauthImportTokenSchema,
   oauthPollSchema,
+  zedCloudImportSchema,
 } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
@@ -59,6 +60,42 @@ function safeEqual(a: string | null | undefined, b: string | null | undefined): 
   const bb = Buffer.from(String(b));
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
+}
+
+function getZedConnectionName(tokenData: any, userId: string): string {
+  return tokenData.name || tokenData.email || tokenData.displayName || `Zed Cloud (${userId})`;
+}
+
+async function upsertZedCloudConnection(connectionId: string | undefined, tokenData: any) {
+  const userId = tokenData?.providerSpecificData?.userId;
+  const existing = await getProviderConnections({ provider: "zed-cloud" });
+  const match = existing.find((connection: any) => {
+    if (connection.id && safeEqual(connectionId, connection.id)) return true;
+    const existingUserId = connection.providerSpecificData?.userId;
+    return Boolean(userId && safeEqual(existingUserId, userId) && connection.authType === "oauth");
+  });
+
+  const data = {
+    ...tokenData,
+    name: getZedConnectionName(tokenData, userId || "unknown"),
+    testStatus: "active",
+    lastError: null,
+    lastErrorAt: null,
+    lastErrorType: null,
+    lastErrorSource: null,
+    errorCode: null,
+    isActive: true,
+  };
+
+  if (typeof match?.id === "string") {
+    return updateProviderConnection(match.id, data);
+  }
+
+  return createProviderConnection({
+    provider: "zed-cloud",
+    authType: "oauth",
+    ...data,
+  });
 }
 
 async function requireOAuthRouteAuth(request: Request) {
@@ -586,16 +623,9 @@ export async function POST(
             })
           );
 
-          if (!tokenData.name && (tokenData.email || tokenData.displayName)) {
-            tokenData.name = tokenData.email || tokenData.displayName;
-          }
+          tokenData.name = getZedConnectionName(tokenData, userId);
 
-          const connection = await createProviderConnection({
-            provider,
-            authType: "oauth",
-            ...tokenData,
-            testStatus: "active",
-          });
+          const connection = await upsertZedCloudConnection(connectionId, tokenData);
 
           await syncToCloudIfEnabled();
 
@@ -764,13 +794,8 @@ export async function POST(
           email,
           authMethod: "import",
         });
-        const connection = await createProviderConnection({
-          provider,
-          authType: "oauth",
-          name: name || tokenData.email || "Zed Cloud",
-          ...tokenData,
-          testStatus: "active",
-        });
+        tokenData.name = name || getZedConnectionName(tokenData, userId);
+        const connection = await upsertZedCloudConnection(body.connectionId, tokenData);
         await syncToCloudIfEnabled();
         return NextResponse.json({
           success: true,

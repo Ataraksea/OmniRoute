@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { publishStandaloneToApp } from "./publish-standalone-app.mjs";
 
 /**
  * This repository contains a legacy `app/` snapshot (packaging/runtime artifacts)
@@ -235,6 +236,27 @@ export async function main() {
           "[build-next-isolated] Non-fatal error copying native standalone assets:",
           nativeAssetErr
         );
+      }
+
+      try {
+        publishStandaloneToApp(projectRoot);
+        // app/ is now the freshly published build; drop the legacy snapshot
+        // backup so the finally{} restore does not overwrite it.
+        const legacyIdx = movedPaths.findIndex((m) => m.label === "legacy app snapshot");
+        if (legacyIdx !== -1) {
+          const [legacy] = movedPaths.splice(legacyIdx, 1);
+          try {
+            await fs.rm(legacy.backupPath, { recursive: true, force: true });
+          } catch (rmErr) {
+            console.warn(
+              "[build-next-isolated] Non-fatal: could not remove legacy app backup:",
+              rmErr?.message
+            );
+          }
+        }
+      } catch (publishErr) {
+        console.error("[build-next-isolated] Failed to publish standalone to app/:", publishErr);
+        process.exitCode = 1;
       }
     }
     process.exitCode = result.code;

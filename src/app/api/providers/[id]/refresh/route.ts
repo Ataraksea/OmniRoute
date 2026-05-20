@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/db/providers";
 import { getAccessToken, updateProviderCredentials } from "@/sse/services/tokenRefresh";
+import { clearZedJwtCache, fetchZedJwt } from "@omniroute/open-sse/services/zedCloud/token.ts";
 
 type RefreshResult = {
   accessToken?: string;
   expiresIn?: number;
   error?: string;
 };
+
+function parseJwtExpiry(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")
+    ) as { exp?: number };
+    return typeof payload.exp === "number" ? new Date(payload.exp * 1000).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/providers/[id]/refresh
@@ -53,6 +67,36 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       idToken: connection.idToken,
       providerSpecificData: connection.providerSpecificData,
     };
+
+    if (provider === "zed-cloud") {
+      clearZedJwtCache(id);
+      const jwt = await fetchZedJwt(credentials);
+      const expiresAt = parseJwtExpiry(jwt);
+      const zedUserId =
+        typeof connection.providerSpecificData?.userId === "string"
+          ? connection.providerSpecificData.userId
+          : typeof connection.providerSpecificData?.user_id === "string"
+            ? connection.providerSpecificData.user_id
+            : "unknown";
+      await updateProviderConnection(id, {
+        ...(!connection.name ? { name: `Zed Cloud (${zedUserId})` } : {}),
+        testStatus: "active",
+        lastError: null,
+        lastErrorAt: null,
+        lastErrorType: null,
+        lastErrorSource: null,
+        errorCode: null,
+        ...(expiresAt ? { expiresAt } : {}),
+      });
+
+      return NextResponse.json({
+        success: true,
+        connectionId: id,
+        provider,
+        expiresAt,
+        refreshedAt: new Date().toISOString(),
+      });
+    }
 
     // Use the existing getAccessToken helper which knows how to refresh
     // tokens for each provider type (Claude, GitHub, Gemini, etc.)

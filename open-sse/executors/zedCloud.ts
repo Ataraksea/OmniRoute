@@ -48,19 +48,18 @@ export class ZedCloudExecutor extends BaseExecutor {
     transformedBody: unknown;
   }> {
     const { model, body, stream, credentials, signal, log, upstreamExtraHeaders } = input;
+    const requestBody = body as Record<string, unknown> | null;
+    const hasClaudeSystem = typeof requestBody?.system !== "undefined";
     const isAnthropicTarget =
-      (this.config.format === FORMATS.CLAUDE || model.startsWith("claude")) &&
-      Array.isArray((body as Record<string, unknown>)?.messages);
+      this.config.format === FORMATS.CLAUDE && Array.isArray(requestBody?.messages);
 
     const isAnthropicBody =
-      isAnthropicTarget ||
-      (typeof (body as Record<string, unknown>)?.system !== "undefined" &&
-        !Array.isArray((body as Record<string, unknown>)?.choices));
+      isAnthropicTarget || (hasClaudeSystem && !Array.isArray(requestBody?.choices));
 
     const runOnce = async (retryOnAuth: boolean) => {
       const jwt = await fetchZedJwt(credentials, signal);
-      const credHeaders = this.buildHeaders({ accessToken: jwt });
-      const headers = mergeUpstreamExtraHeaders(credHeaders, upstreamExtraHeaders);
+      const headers = this.buildHeaders({ accessToken: jwt });
+      mergeUpstreamExtraHeaders(headers, upstreamExtraHeaders);
       const payload = buildZedPayload(body, {
         isAnthropicTarget: Boolean(
           (body as Record<string, unknown>)?.system !== undefined || isAnthropicBody

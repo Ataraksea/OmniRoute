@@ -9,6 +9,7 @@ import {
 
 describe("zed-cloud payload", () => {
   it("normalizes Claude Code model aliases", () => {
+    assert.equal(normalizeModelName("claude-sonnet-4-6"), "claude-sonnet-4-6");
     assert.equal(normalizeModelName("claude-sonnet-4-5-thinking"), "claude-sonnet-4-5");
   });
 
@@ -33,6 +34,29 @@ describe("zed-cloud payload", () => {
     assert.ok(parsed.provider_request);
     assert.equal(parsed.provider_request.model, "claude-sonnet-4-5");
     assert.equal(extractModel(body), "claude-sonnet-4-5");
+  });
+
+  it("strips OmniRoute provider prefix before sending model ids to Zed", () => {
+    const body = {
+      model: "zed-cloud/claude-sonnet-4-5",
+      messages: [{ role: "user", content: "hi" }],
+    };
+    const parsed = JSON.parse(buildZedPayload(body, { isAnthropicTarget: false }));
+    assert.equal(parsed.provider, "anthropic");
+    assert.equal(parsed.model, "claude-sonnet-4-5");
+    assert.equal(parsed.provider_request.model, "claude-sonnet-4-5");
+    assert.equal(extractModel(body), "claude-sonnet-4-5");
+  });
+
+  it("converts OpenAI string content to Anthropic content blocks", () => {
+    const body = {
+      model: "claude-sonnet-4-5",
+      messages: [{ role: "user", content: "hi" }],
+    };
+    const parsed = JSON.parse(buildZedPayload(body, { isAnthropicTarget: false }));
+    assert.deepEqual(parsed.provider_request.messages, [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
   });
 
   it("uses open_ai provider_request shape for gpt models", () => {

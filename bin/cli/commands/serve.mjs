@@ -9,7 +9,20 @@ import { ServerSupervisor, detectMitmCrash } from "../runtime/processSupervisor.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..", "..");
-const APP_DIR = join(ROOT, "app");
+
+/** @returns {{ serverJs: string; serverDir: string }} */
+export function resolveServeRuntime(root = ROOT) {
+  // Order matters: prefer published app/, then top-level standalone (running from inside .next/standalone),
+  // then repo-root .next/standalone (running from repo root after a fresh build without app/).
+  const candidates = [join(root, "app"), root, join(root, ".next", "standalone")];
+  for (const serverDir of candidates) {
+    const serverWsJs = join(serverDir, "server-ws.mjs");
+    const serverJs = join(serverDir, "server.js");
+    if (existsSync(serverWsJs)) return { serverJs: serverWsJs, serverDir };
+    if (existsSync(serverJs)) return { serverJs, serverDir };
+  }
+  return { serverJs: join(root, "app", "server.js"), serverDir: join(root, "app") };
+}
 
 function parsePort(value, fallback) {
   const parsed = parseInt(String(value), 10);
@@ -65,12 +78,14 @@ export async function runServe(opts = {}) {
 `);
   }
 
-  const serverWsJs = join(APP_DIR, "server-ws.mjs");
-  const serverJs = existsSync(serverWsJs) ? serverWsJs : join(APP_DIR, "server.js");
+  const { serverJs, serverDir: APP_DIR } = resolveServeRuntime(ROOT);
 
   if (!existsSync(serverJs)) {
     console.error("\x1b[31m✖ Server not found at:\x1b[0m", serverJs);
     console.error("  The package may not have been built correctly.");
+    console.error(
+      "  From the repo root, run: \x1b[36mnpm run build\x1b[0m (copies .next/standalone → app/)."
+    );
     console.error("");
     const nodeExec = process.execPath || "";
     const isMise = nodeExec.includes("mise") || nodeExec.includes(".local/share/mise");
@@ -133,11 +148,11 @@ export async function runServe(opts = {}) {
   const useTray = opts.tray === true;
 
   if (isDaemon) {
-    return runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort);
+    return runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort, APP_DIR);
   }
 
   if (opts.noRecovery) {
-    return runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, noOpen);
+    return runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, noOpen, APP_DIR);
   }
 
   return runWithSupervisor(
@@ -153,9 +168,9 @@ export async function runServe(opts = {}) {
   );
 }
 
-function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
+function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort, serverDir) {
   const server = spawn("node", [`--max-old-space-size=${memoryLimit}`, serverJs], {
-    cwd: APP_DIR,
+    cwd: serverDir,
     env,
     stdio: "ignore",
     detached: true,
@@ -167,9 +182,9 @@ function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
   console.log(`  \x1b[1mAPI Base:\x1b[0m   http://localhost:${apiPort}/v1`);
 }
 
-function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, noOpen) {
+function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, noOpen, serverDir) {
   const server = spawn("node", [`--max-old-space-size=${memoryLimit}`, serverJs], {
-    cwd: APP_DIR,
+    cwd: serverDir,
     env,
     stdio: "pipe",
   });

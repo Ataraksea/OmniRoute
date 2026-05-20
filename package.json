@@ -127,7 +127,8 @@
     "uninstall:full": "node scripts/build/uninstall.mjs --full",
     "prepare": "husky",
     "system-info": "node scripts/dev/system-info.mjs",
-    "build:cli-api": "node --import tsx/esm scripts/cli/generate-api-commands.mjs"
+    "build:cli-api": "node --import tsx/esm scripts/cli/generate-api-commands.mjs",
+    "dev:local": "bash scripts/dev/setup-and-run.sh"
   },
   "dependencies": {
     "@lobehub/icons": "^5.8.0",

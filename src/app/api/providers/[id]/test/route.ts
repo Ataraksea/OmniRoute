@@ -22,6 +22,11 @@ import {
   resolveGitLabOAuthBaseUrl,
 } from "@/lib/oauth/gitlab";
 import { providerAllowsOptionalApiKey } from "@/shared/constants/providers";
+import { fetchZedJwt } from "@omniroute/open-sse/services/zedCloud/token.ts";
+import {
+  ZED_CLOUD_URLS,
+  getZedClientVersion,
+} from "@omniroute/open-sse/services/zedCloud/constants.ts";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -339,12 +344,59 @@ async function syncToCloudIfEnabled() {
   }
 }
 
+async function testZedCloudConnection(connection: any) {
+  try {
+    const jwt = await fetchZedJwt({
+      connectionId: connection.id,
+      accessToken: connection.accessToken,
+      providerSpecificData: connection.providerSpecificData || {},
+    });
+    const res = await fetch(ZED_CLOUD_URLS.models, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "x-zed-version": getZedClientVersion(),
+      },
+    });
+
+    if (res.ok) {
+      return {
+        valid: true,
+        error: null,
+        refreshed: false,
+        diagnosis: makeDiagnosis("ok", "upstream", null, null),
+      };
+    }
+
+    const error = res.status === 401 ? "Token invalid or revoked" : `API returned ${res.status}`;
+    return {
+      valid: false,
+      error,
+      refreshed: false,
+      statusCode: res.status,
+      diagnosis: classifyFailure({ error, statusCode: res.status }),
+    };
+  } catch (err: any) {
+    const error = toSafeMessage(err?.message, "Connection test failed");
+    return {
+      valid: false,
+      error,
+      refreshed: false,
+      diagnosis: classifyFailure({ error }),
+    };
+  }
+}
+
 /**
  * Test OAuth connection by calling provider API
  * Auto-refreshes token if expired
  * @returns {{ valid: boolean, error: string|null, refreshed: boolean, newTokens: object|null }}
  */
 async function testOAuthConnection(connection: any) {
+  if (connection.provider === "zed-cloud") {
+    return testZedCloudConnection(connection);
+  }
+
   const config = OAUTH_TEST_CONFIG[connection.provider];
 
   if (!config) {
