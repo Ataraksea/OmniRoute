@@ -98,6 +98,8 @@ const nextConfig = {
       "./open-sse/services/compression/rules/**/*.json",
       "./open-sse/lib/sha3_wasm_bg.wasm",
       "./open-sse/lib/deepseek-pow-solver.cjs",
+      // Playwright reads browsers.json at module load (Claude/Gemini web executors).
+      "./node_modules/playwright-core/browsers.json",
     ],
   },
   outputFileTracingExcludes: {

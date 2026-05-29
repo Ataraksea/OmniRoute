@@ -142,24 +142,42 @@ export async function syncStandaloneNativeAssets(
   fsImpl = fs,
   log = console
 ) {
-  const nativeAssetDirs = [
+  const nativeAssets = [
     {
       label: "wreq-js native runtime",
+      kind: "dir",
       sourcePath: path.join(rootDir, "node_modules", "wreq-js", "rust"),
       destinationPath: path.join(rootDir, ".next", "standalone", "node_modules", "wreq-js", "rust"),
+    },
+    {
+      label: "playwright-core browsers.json",
+      kind: "file",
+      sourcePath: path.join(rootDir, "node_modules", "playwright-core", "browsers.json"),
+      destinationPath: path.join(
+        rootDir,
+        ".next",
+        "standalone",
+        "node_modules",
+        "playwright-core",
+        "browsers.json"
+      ),
     },
   ];
 
   let changed = false;
 
-  for (const entry of nativeAssetDirs) {
+  for (const entry of nativeAssets) {
     if (!(await exists(entry.sourcePath))) continue;
 
     await fsImpl.mkdir(path.dirname(entry.destinationPath), { recursive: true });
-    await fsImpl.cp(entry.sourcePath, entry.destinationPath, {
-      recursive: true,
-      force: true,
-    });
+    if (entry.kind === "file") {
+      await fsImpl.copyFile(entry.sourcePath, entry.destinationPath);
+    } else {
+      await fsImpl.cp(entry.sourcePath, entry.destinationPath, {
+        recursive: true,
+        force: true,
+      });
+    }
     log.log(
       `[build-next-isolated] Copied native standalone asset: ${path.relative(
         rootDir,

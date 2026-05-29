@@ -42,3 +42,34 @@ test("AzureOpenAIExecutor uses api-key auth headers instead of Bearer auth", () 
     Accept: "text/event-stream",
   });
 });
+
+test("AzureOpenAIExecutor maps max_tokens for GPT-5 chat deployments", () => {
+  const executor = new AzureOpenAIExecutor();
+  const deploymentBody = executor.transformRequest(
+    "azure-gpt-55-deployment",
+    {
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "Hello" }],
+      max_tokens: 2048,
+    },
+    true,
+    { providerSpecificData: {} }
+  );
+
+  assert.equal((deploymentBody as Record<string, unknown>).max_tokens, undefined);
+  assert.equal((deploymentBody as Record<string, unknown>).max_completion_tokens, 2048);
+
+  const prefixedBody = executor.transformRequest(
+    "azure-openai/gpt-5.5",
+    {
+      model: "azure-openai/gpt-5.5",
+      messages: [{ role: "user", content: "Hello" }],
+      max_tokens: 1024,
+    },
+    true,
+    { providerSpecificData: {} }
+  );
+
+  assert.equal((prefixedBody as Record<string, unknown>).max_tokens, undefined);
+  assert.equal((prefixedBody as Record<string, unknown>).max_completion_tokens, 1024);
+});

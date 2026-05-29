@@ -173,3 +173,34 @@ test("syncStandaloneNativeAssets copies wreq-js native runtime into standalone o
     assert.match((logs[0] ?? "").replaceAll("\\", "/"), /wreq-js\/rust/);
   });
 });
+
+test("syncStandaloneNativeAssets copies playwright-core browsers.json into standalone output", async () => {
+  await withTempDir(async (tempDir) => {
+    const sourceBrowsersJson = path.join(
+      tempDir,
+      "node_modules",
+      "playwright-core",
+      "browsers.json"
+    );
+    const destinationBrowsersJson = path.join(
+      tempDir,
+      ".next",
+      "standalone",
+      "node_modules",
+      "playwright-core",
+      "browsers.json"
+    );
+    const logs: string[] = [];
+
+    await fs.mkdir(path.dirname(sourceBrowsersJson), { recursive: true });
+    await fs.writeFile(sourceBrowsersJson, '{"browsers":[]}');
+
+    const changed = await syncStandaloneNativeAssets(tempDir, fs, {
+      log: (message: unknown) => logs.push(String(message)),
+    });
+
+    assert.equal(changed, true);
+    assert.equal(await fs.readFile(destinationBrowsersJson, "utf8"), '{"browsers":[]}');
+    assert.match(logs.join("\n").replaceAll("\\", "/"), /playwright-core\/browsers\.json/);
+  });
+});

@@ -84,6 +84,11 @@ function normalizeSnowflakeChatUrl(baseUrl) {
   return `${normalized}/api/v2/cortex/inference:complete`;
 }
 
+function isRecentOpenAIChatModel(model: unknown) {
+  if (typeof model !== "string") return false;
+  return /(?:^|\/)(?:o1|o3|o4|gpt-5)/i.test(model.trim());
+}
+
 function normalizeGigachatChatUrl(baseUrl) {
   const normalized = normalizeBaseUrl(baseUrl).replace(/\/chat\/completions$/, "");
   return `${normalized}/chat/completions`;
@@ -479,15 +484,17 @@ export class DefaultExecutor extends BaseExecutor {
         withDefaults = withoutStreamOptions;
       }
 
-      // #1961: Map max_tokens -> max_completion_tokens for recent OpenAI models
+      // #1961: Map max_tokens -> max_completion_tokens for recent OpenAI chat models.
+      // Azure OpenAI uses deployment names in the URL, so also inspect body.model.
       if (targetFormat === "openai") {
-        const isRecentOpenAI = /^(o1|o3|o4|gpt-5)/i.test(model);
-        if (isRecentOpenAI && withDefaults && typeof withDefaults === "object") {
-          const defaultsRecord = withDefaults as Record<string, unknown>;
-          if ("max_tokens" in defaultsRecord) {
+        const defaultsRecord = withDefaults as Record<string, unknown>;
+        const isRecentOpenAI =
+          isRecentOpenAIChatModel(model) || isRecentOpenAIChatModel(defaultsRecord.model);
+        if (isRecentOpenAI && "max_tokens" in defaultsRecord) {
+          if (!("max_completion_tokens" in defaultsRecord)) {
             defaultsRecord.max_completion_tokens = defaultsRecord.max_tokens;
-            delete defaultsRecord.max_tokens;
           }
+          delete defaultsRecord.max_tokens;
         }
       }
     }
