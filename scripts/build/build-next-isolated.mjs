@@ -150,16 +150,15 @@ export async function syncStandaloneNativeAssets(
       destinationPath: path.join(rootDir, ".next", "standalone", "node_modules", "wreq-js", "rust"),
     },
     {
-      label: "playwright-core browsers.json",
-      kind: "file",
-      sourcePath: path.join(rootDir, "node_modules", "playwright-core", "browsers.json"),
+      label: "better-sqlite3 native binary",
+      sourcePath: path.join(rootDir, "node_modules", "better-sqlite3", "build"),
       destinationPath: path.join(
         rootDir,
         ".next",
         "standalone",
         "node_modules",
-        "playwright-core",
-        "browsers.json"
+        "better-sqlite3",
+        "build"
       ),
     },
   ];
@@ -190,6 +189,90 @@ export async function syncStandaloneNativeAssets(
   return changed;
 }
 
+export async function syncStandaloneExtraModules(
+  rootDir = projectRoot,
+  fsImpl = fs,
+  log = console
+) {
+  const entries = [
+    {
+      label: "@swc/helpers",
+      sourcePath: path.join(rootDir, "node_modules", "@swc", "helpers"),
+      destRelative: path.join("node_modules", "@swc", "helpers"),
+    },
+    {
+      label: "pino-abstract-transport",
+      sourcePath: path.join(rootDir, "node_modules", "pino-abstract-transport"),
+      destRelative: path.join("node_modules", "pino-abstract-transport"),
+    },
+    {
+      label: "pino-pretty",
+      sourcePath: path.join(rootDir, "node_modules", "pino-pretty"),
+      destRelative: path.join("node_modules", "pino-pretty"),
+    },
+    {
+      label: "split2",
+      sourcePath: path.join(rootDir, "node_modules", "split2"),
+      destRelative: path.join("node_modules", "split2"),
+    },
+    {
+      label: "migrations",
+      sourcePath: path.join(rootDir, "src", "lib", "db", "migrations"),
+      destRelative: "migrations",
+    },
+    {
+      label: "MITM server",
+      sourcePath: path.join(rootDir, "src", "mitm", "server.cjs"),
+      destRelative: path.join("src", "mitm", "server.cjs"),
+    },
+    {
+      label: "run-standalone script",
+      sourcePath: path.join(rootDir, "scripts", "dev", "run-standalone.mjs"),
+      destRelative: path.join("dev", "run-standalone.mjs"),
+    },
+    {
+      label: "runtime-env script",
+      sourcePath: path.join(rootDir, "scripts", "build", "runtime-env.mjs"),
+      destRelative: path.join("build", "runtime-env.mjs"),
+    },
+    {
+      label: "bootstrap-env script",
+      sourcePath: path.join(rootDir, "scripts", "build", "bootstrap-env.mjs"),
+      destRelative: path.join("build", "bootstrap-env.mjs"),
+    },
+    {
+      label: "healthcheck script",
+      sourcePath: path.join(rootDir, "scripts", "dev", "healthcheck.mjs"),
+      destRelative: "healthcheck.mjs",
+    },
+    {
+      label: "public directory",
+      sourcePath: path.join(rootDir, "public"),
+      destRelative: "public",
+    },
+    {
+      label: "playwright-core (dynamic import by gemini-web executor)",
+      sourcePath: path.join(rootDir, "node_modules", "playwright-core"),
+      destRelative: path.join("node_modules", "playwright-core"),
+    },
+  ];
+
+  let changed = false;
+  const standaloneRoot = path.join(rootDir, ".next", "standalone");
+
+  for (const entry of entries) {
+    if (!(await exists(entry.sourcePath))) continue;
+
+    const destPath = path.join(standaloneRoot, entry.destRelative);
+    await fsImpl.mkdir(path.dirname(destPath), { recursive: true });
+    await fsImpl.cp(entry.sourcePath, destPath, { recursive: true, force: true });
+    log.log(`[build-next-isolated] Synced standalone module: ${entry.label}`);
+    changed = true;
+  }
+
+  return changed;
+}
+
 export async function main() {
   const movedPaths = [];
   const transientBuildPaths = getTransientBuildPaths();
@@ -203,17 +286,6 @@ export async function main() {
 
     await resetStandaloneOutput(projectRoot);
 
-    console.log("[build-next-isolated] Generating docs index...");
-    try {
-      const { execSync } = await import("node:child_process");
-      execSync("node scripts/docs/generate-docs-index.mjs", { cwd: projectRoot, stdio: "inherit" });
-    } catch (docGenErr) {
-      console.warn(
-        "[build-next-isolated] Docs index generation failed (non-fatal):",
-        docGenErr?.message
-      );
-    }
-
     const result = await runNextBuild();
     if (result.code === 0 && (await exists(path.join(projectRoot, ".next", "standalone")))) {
       console.log("[build-next-isolated] Copying static assets for standalone server...");
@@ -225,6 +297,21 @@ export async function main() {
         );
       } catch (copyErr) {
         console.warn("[build-next-isolated] Non-fatal error copying static assets:", copyErr);
+      }
+
+      try {
+        const publicDir = path.join(projectRoot, "public");
+        if (await exists(publicDir)) {
+          await fs.cp(publicDir, path.join(projectRoot, ".next", "standalone", "public"), {
+            recursive: true,
+          });
+          console.log("[build-next-isolated] Copied public/ to standalone output");
+        }
+      } catch (publicCopyErr) {
+        console.warn(
+          "[build-next-isolated] Non-fatal error copying public/:",
+          publicCopyErr?.message
+        );
       }
 
       try {
@@ -257,24 +344,12 @@ export async function main() {
       }
 
       try {
-        publishStandaloneToApp(projectRoot);
-        // app/ is now the freshly published build; drop the legacy snapshot
-        // backup so the finally{} restore does not overwrite it.
-        const legacyIdx = movedPaths.findIndex((m) => m.label === "legacy app snapshot");
-        if (legacyIdx !== -1) {
-          const [legacy] = movedPaths.splice(legacyIdx, 1);
-          try {
-            await fs.rm(legacy.backupPath, { recursive: true, force: true });
-          } catch (rmErr) {
-            console.warn(
-              "[build-next-isolated] Non-fatal: could not remove legacy app backup:",
-              rmErr?.message
-            );
-          }
-        }
-      } catch (publishErr) {
-        console.error("[build-next-isolated] Failed to publish standalone to app/:", publishErr);
-        process.exitCode = 1;
+        await syncStandaloneExtraModules(projectRoot);
+      } catch (extraModuleErr) {
+        console.warn(
+          "[build-next-isolated] Non-fatal error syncing extra modules:",
+          extraModuleErr
+        );
       }
     }
     process.exitCode = result.code;

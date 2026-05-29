@@ -52,7 +52,10 @@ import {
 const MAX_RETRY_AFTER_MS = 60_000;
 const LONG_RETRY_THRESHOLD_MS = 60_000;
 const CREDITS_EXHAUSTED_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
-const BARE_PRO_IDS = new Set(["gemini-3.1-pro"]);
+// The upstream API uses plain model IDs (no -high/-low suffix).
+// Tier suffixes were speculative and caused 404 for gemini-3.x models.
+// Only keep models that are live-proven via streamGenerateContent.
+const BARE_PRO_IDS: Set<string> = new Set();
 
 interface AntigravityContent {
   role: string;
@@ -123,9 +126,66 @@ function serializeAntigravityRequest(
 type AntigravityCollectedStream = {
   textContent: string;
   finishReason: string;
+  toolCalls: Array<{
+    id: string;
+    index: number;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
   usage: Record<string, unknown> | null;
   remainingCredits: Array<{ creditType: string; creditAmount: string }> | null;
 };
+
+function stripZeroWidth(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => stripZeroWidth(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        stripZeroWidth(item),
+      ])
+    );
+  }
+  return value;
+}
+
+function parseAntigravityTextualToolCall(text: unknown): { name: string; args: unknown } | null {
+  if (typeof text !== "string") return null;
+  const normalized = text.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  const match = normalized.match(
+    /^[\s\S]*?\[Tool call:\s*([^\]\n]+)\]\s*\nArguments:\s*([\s\S]+?)\s*$/
+  );
+  if (!match) return null;
+  const name = match[1]?.trim();
+  const rawArgs = match[2]?.trim();
+  if (!name || !rawArgs) return null;
+  try {
+    return { name, args: stripZeroWidth(JSON.parse(rawArgs)) };
+  } catch {
+    return null;
+  }
+}
+
+function addAntigravityTextualToolCall(
+  collected: AntigravityCollectedStream,
+  parsed: { name: string; args: unknown }
+): void {
+  collected.toolCalls.push({
+    id: `${parsed.name}-${Date.now()}-${collected.toolCalls.length}`,
+    index: collected.toolCalls.length,
+    type: "function",
+    function: {
+      name: parsed.name,
+      arguments: JSON.stringify(parsed.args || {}),
+    },
+  });
+  collected.finishReason = "tool_calls";
+}
 
 type AntigravityRequestEnvelope = Record<string, unknown> & {
   project: string;
@@ -233,7 +293,12 @@ function processAntigravitySSEPayload(
     if (candidate?.content?.parts) {
       for (const part of candidate.content.parts) {
         if (typeof part.text === "string" && !part.thought && !part.thoughtSignature) {
-          collected.textContent += part.text;
+          const textualToolCall = parseAntigravityTextualToolCall(part.text);
+          if (textualToolCall) {
+            addAntigravityTextualToolCall(collected, textualToolCall);
+          } else {
+            collected.textContent += part.text;
+          }
         }
       }
     }
@@ -426,9 +491,9 @@ export class AntigravityExecutor extends BaseExecutor {
     _stream: boolean,
     credentials: AntigravityCredentials
   ): Promise<AntigravityRequestEnvelope | Response> {
-    // TODO: Consider removing project override like gemini-cli.ts — stored projectId
-    // can become stale for Cloud Code accounts, causing 403 "has not been used in project X".
-    // Antigravity accounts may have more stable project IDs, but the risk exists.
+    // Project ID resolution: prefer OAuth-stored projectId over incoming body.project
+    // to avoid stale/wrong client-side values causing 404/403 from Cloud Code endpoints.
+    // Opt-in escape hatch: set OMNIROUTER_ALLOW_BODY_PROJECT_OVERRIDE=1.
     const normalizeProjectId = (value: unknown): string | null => {
       if (typeof value !== "string") return null;
       const trimmedValue = value.trim();
@@ -479,6 +544,24 @@ export class AntigravityExecutor extends BaseExecutor {
         headers: { "Content-Type": "application/json" },
       });
       // Returning a Response object signals the executor to stop and forward it
+      return resp as unknown as never;
+    }
+
+    // Validate projectId is non-empty and not just whitespace
+    const trimmedProjectId = typeof projectId === "string" ? projectId.trim() : projectId;
+    if (!trimmedProjectId) {
+      const resp = new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "Invalid (empty) Google projectId for Antigravity account. " +
+              "Please reconnect OAuth in Providers → Antigravity.",
+            type: "oauth_missing_project_id",
+            code: "missing_project_id",
+          },
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } }
+      );
       return resp as unknown as never;
     }
 
@@ -594,6 +677,15 @@ export class AntigravityExecutor extends BaseExecutor {
     if (!credentials.refreshToken) return null;
 
     try {
+      const bodyParams: Record<string, string> = {
+        grant_type: "refresh_token",
+        refresh_token: credentials.refreshToken,
+      };
+      // Only include non-empty client_id/client_secret — Google OAuth rejects
+      // empty params which raw URLSearchParams produces (buildFormParams semantics).
+      if (this.config.clientId) bodyParams.client_id = this.config.clientId;
+      if (this.config.clientSecret) bodyParams.client_secret = this.config.clientSecret;
+
       const response = await fetch(OAUTH_ENDPOINTS.google.token, {
         method: "POST",
         headers: {
@@ -601,15 +693,22 @@ export class AntigravityExecutor extends BaseExecutor {
           Accept: "application/json",
           "User-Agent": antigravityNativeOAuthUserAgent(),
         },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: credentials.refreshToken || "",
-          client_id: this.config.clientId || "",
-          client_secret: this.config.clientSecret || "",
-        }),
+        body: new URLSearchParams(bodyParams),
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        // Detect unrecoverable token (invalid_grant = revoked / expired refresh token)
+        try {
+          const errorBody = (await response.json()) as Record<string, unknown>;
+          if (errorBody.error === "invalid_grant") {
+            log?.error?.("TOKEN", "Antigravity refresh token revoked. Re-authentication required.");
+            return { error: "unrecoverable_refresh_error" } as unknown as AntigravityCredentials;
+          }
+        } catch {
+          // not JSON — fall through
+        }
+        return null;
+      }
 
       const tokens = (await response.json()) as Record<string, unknown>;
       log?.info?.("TOKEN", "Antigravity refreshed");
@@ -717,6 +816,7 @@ export class AntigravityExecutor extends BaseExecutor {
       const collected: AntigravityCollectedStream = {
         textContent: "",
         finishReason: "stop",
+        toolCalls: [],
         usage: null,
         remainingCredits: null,
       };
@@ -761,8 +861,19 @@ export class AntigravityExecutor extends BaseExecutor {
         choices: [
           {
             index: 0,
-            message: { role: "assistant", content: collected.textContent },
-            finish_reason: timedOut ? "length" : collected.finishReason,
+            message:
+              collected.toolCalls.length > 0
+                ? {
+                    role: "assistant",
+                    content: collected.textContent || null,
+                    tool_calls: collected.toolCalls,
+                  }
+                : { role: "assistant", content: collected.textContent },
+            finish_reason: timedOut
+              ? "length"
+              : collected.toolCalls.length > 0
+                ? "tool_calls"
+                : collected.finishReason,
           },
         ],
         ...(collected.usage && { usage: collected.usage }),
